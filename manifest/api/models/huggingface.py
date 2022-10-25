@@ -201,7 +201,8 @@ class HuggingFaceModel(Model):
                 try:
                     model_name_or_path = config["_name_or_path"]
                 except:
-                    model_name_or_path = 'gpt2'
+                    # The SN ckpts does not have "_name_or_path" in the config file. So just use the folder name as the model name.
+                    model_name_or_path = self.model_path.split('/')[-1]
         self.model_name = model_name_or_path
         print("Model Name:", self.model_name, "Model Path:", self.model_path)
         try:
