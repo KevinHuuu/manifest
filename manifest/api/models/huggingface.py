@@ -208,12 +208,12 @@ class HuggingFaceModel(Model):
         try:
             if 'sn' in self.model_name:
                 tokenizer = AutoTokenizer.from_pretrained(
-                                    'gpt2', truncation_side="left"
-                                                )
+                        'gpt2', truncation_side="left"
+                )
             else:
-      		tokenizer = AutoTokenizer.from_pretrained(
-                	self.model_name, truncation_side="left"
-            	)
+                tokenizer = AutoTokenizer.from_pretrained(
+                        self.model_name, truncation_side="left"
+                )
         except ValueError:
             tokenizer = AutoTokenizer.from_pretrained(
                 self.model_name, truncation_side="left", use_fast=False
@@ -258,7 +258,7 @@ class HuggingFaceModel(Model):
                     self.model_path, cache_dir=cache_dir, torch_dtype=dtype
                 )
             else:
-	        model = MODEL_REGISTRY[self.model_name].from_pretrained(  # type: ignore
+                model = MODEL_REGISTRY[self.model_name].from_pretrained(  # type: ignore
                     self.model_path, cache_dir=cache_dir, torch_dtype=dtype
                 )
         model.eval()
