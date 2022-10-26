@@ -23,7 +23,7 @@ DESCRIPTION = "Manifest for Prompt Programming Foundation Models."
 URL = "https://github.com/HazyResearch/manifest"
 EMAIL = "lorr1@cs.stanford.edu"
 AUTHOR = "Laurel Orr and Avanika Narayan"
-REQUIRES_PYTHON = ">=3.8.0"
+REQUIRES_PYTHON = ">=3.7.0"
 VERSION = main_ns["__version__"]
 
 # What packages are required for this module to be executed?
