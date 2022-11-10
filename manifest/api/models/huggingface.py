@@ -206,7 +206,7 @@ class HuggingFaceModel(Model):
         self.model_name = model_name_or_path
         print("Model Name:", self.model_name, "Model Path:", self.model_path)
         try:
-            if 'sn' in self.model_name:
+            if 'sn' in self.model_name or 'SN' in self.model_name:
                 tokenizer = AutoTokenizer.from_pretrained(
                         'gpt2', truncation_side="left"
                 )
@@ -224,7 +224,7 @@ class HuggingFaceModel(Model):
             print("WARNING!!! Cannot use sampling with bitsandbytes.")
             max_memory = get_max_memory(perc_max_gpu_mem_red)
             print(max_memory)
-            if 'sn' in self.model_name:
+            if 'sn' in self.model_name or 'SN' in self.model_name:
                 model = MODEL_REGISTRY['gpt2'].from_pretrained(  # type: ignore
                     self.model_path,
                     cache_dir=cache_dir,
@@ -253,7 +253,7 @@ class HuggingFaceModel(Model):
         #         model = MODEL_REGISTRY[self.model_name].from_pretrained(  # type: ignore
         #             self.model_path, cache_dir=cache_dir, torch_dtype=dtype
         #         )
-            if 'sn' in self.model_name:
+            if 'sn' in self.model_name or 'SN' in self.model_name:
                 model = MODEL_REGISTRY['gpt2'].from_pretrained(  # type: ignore
                     self.model_path, cache_dir=cache_dir, torch_dtype=dtype
                 )
