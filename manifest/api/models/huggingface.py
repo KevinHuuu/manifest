@@ -193,6 +193,10 @@ class HuggingFaceModel(Model):
             raise ValueError("Cannot use both accelerate and parallelize")
         # Check if providing path
         self.model_path = model_name_or_path
+        if model_name_or_path.endswith('/'): 
+            # /scratch/changranh/$MODEL_NAME/
+            model_name_or_path = model_name_or_path[:-1]
+            
         if Path(self.model_path).exists() and Path(self.model_path).is_dir():
             # Try to find config
             if (Path(self.model_path) / "config.json").exists():
