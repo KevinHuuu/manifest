@@ -1,37 +1,32 @@
 """Cohere client."""
 
-import json
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional, Tuple
-
-import cohere
+from typing import Any, Dict, Optional
 
 from manifest.clients.client import Client
 
-logging.getLogger("cohere").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 COHERE_MODELS = {"small", "medium", "large", "xlarge"}
 
-# Params are defined in https://docs.cohere.ai/generate-reference
-COHERE_PARAMS = {
-    "model": ("model", "xlarge"),
-    "max_tokens": ("max_tokens", 20),
-    "temperature": ("temperature", 0.75),
-    "num_generations": ("num_generations", 1),
-    "k": ("k", 0),
-    "p": ("p", 0.75),
-    "frequency_penalty": ("frequency_penalty", 0.0),
-    "presence_penalty": ("presence_penalty", 0.0),
-    "stop_sequences": ("stop_sequences", []),
-    "return_likelihoods": ("return_likelihoods", ""),
-    "logit_bias": ("logit_bias", {}),
-}
-
 
 class CohereClient(Client):
     """Cohere client."""
+
+    # Params are defined in https://docs.cohere.ai/generate-reference
+    PARAMS = {
+        "engine": ("model", "xlarge"),
+        "max_tokens": ("max_tokens", 20),
+        "temperature": ("temperature", 0.75),
+        "n": ("num_generations", 1),
+        "top_k": ("k", 0),
+        "top_p": ("p", 0.75),
+        "frequency_penalty": ("frequency_penalty", 0.0),
+        "presence_penalty": ("presence_penalty", 0.0),
+        "stop_sequences": ("stop_sequences", None),
+        "client_timeout": ("client_timeout", 60),  # seconds
+    }
 
     def connect(
         self,
@@ -47,22 +42,42 @@ class CohereClient(Client):
             connection_str: connection string.
             client_args: client arguments.
         """
-        api_key = os.environ.get("COHERE_API_KEY", connection_str)
-        if api_key is None:
+        self.api_key = os.environ.get("COHERE_API_KEY", connection_str)
+        if self.api_key is None:
             raise ValueError(
                 "Cohere API key not set. Set COHERE_API_KEY environment "
                 "variable or pass through `connection_str`."
             )
-        self.co = cohere.Client(api_key)
-        for key in COHERE_PARAMS:
-            setattr(self, key, client_args.pop(key, COHERE_PARAMS[key][1]))
-        if getattr(self, "model") not in COHERE_MODELS:
+        self.host = "https://api.cohere.ai"
+        for key in self.PARAMS:
+            setattr(self, key, client_args.pop(key, self.PARAMS[key][1]))
+        if getattr(self, "engine") not in COHERE_MODELS:
             raise ValueError(
-                f"Invalid model {getattr(self, 'model')}. Must be {COHERE_MODELS}."
+                f"Invalid engine {getattr(self, 'engine')}. Must be {COHERE_MODELS}."
             )
 
     def close(self) -> None:
         """Close the client."""
+
+    def get_generation_url(self) -> str:
+        """Get generation URL."""
+        return self.host + "/generate"
+
+    def get_generation_header(self) -> Dict[str, str]:
+        """
+        Get generation header.
+
+        Returns:
+            header.
+        """
+        return {
+            "Cohere-Version": "2021-11-08",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+
+    def supports_batch_inference(self) -> bool:
+        """Return whether the client supports batch inference."""
+        return False
 
     def get_model_params(self) -> Dict:
         """
@@ -74,62 +89,27 @@ class CohereClient(Client):
         Returns:
             model params.
         """
-        return {"model_name": "model", "model": getattr(self, "model")}
+        return {"model_name": "cohere", "engine": getattr(self, "engine")}
 
-    def get_model_inputs(self) -> List:
+    def format_response(self, response: Dict) -> Dict[str, Any]:
         """
-        Get allowable model inputs.
-
-        Returns:
-            model inputs.
-        """
-        return list(COHERE_PARAMS.keys())
-
-    def get_request(
-        self, query: str, request_args: Dict[str, Any] = {}
-    ) -> Tuple[Callable[[], Dict], Dict]:
-        """
-        Get request string function.
+        Format response to dict.
 
         Args:
-            query: query string.
+            response: response
 
-        Returns:
-            request function that takes no input.
-            request parameters as dict.
+        Return:
+            response as dict
         """
-        request_params = {"prompt": query}
-        for key in COHERE_PARAMS:
-            request_params[COHERE_PARAMS[key][0]] = request_args.pop(
-                key, getattr(self, key)
-            )
-
-        def _run_generation() -> Dict:
-            try:
-                response = self.co.generate(**request_params)
-                return json.loads(
-                    json.dumps(
-                        response, default=lambda o: getattr(o, "__dict__", str(o))
-                    )
-                )
-            except cohere.CohereError as e:
-                logger.error(e)
-                raise e
-
-        return _run_generation, request_params
-
-    def get_choice_logit_request(
-        self, query: str, gold_choices: List[str], request_args: Dict[str, Any] = {}
-    ) -> Tuple[Callable[[], Dict], Dict]:
-        """
-        Get request string function for choosing max choices.
-
-        Args:
-            query: query string.
-            gold_choices: choices for model to choose from via max logits.
-
-        Returns:
-            request function that takes no input.
-            request parameters as dict.
-        """
-        raise NotImplementedError("Cohere does not support choice logit request.")
+        return {
+            "object": "text_completion",
+            "model": getattr(self, "engine"),
+            "choices": [
+                {
+                    "text": item["text"],
+                    "text_logprob": item.get("likelihood", None),
+                    "logprobs": item.get("token_likelihoods", None),
+                }
+                for item in response["generations"]
+            ],
+        }

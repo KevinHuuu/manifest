@@ -18,7 +18,7 @@ with open(ver_path) as ver_file:
     exec(ver_file.read(), main_ns)
 
 # Package meta-data.
-NAME = "manifest"
+NAME = "manifest-ml"
 DESCRIPTION = "Manifest for Prompt Programming Foundation Models."
 URL = "https://github.com/HazyResearch/manifest"
 EMAIL = "lorr1@cs.stanford.edu"
@@ -28,22 +28,20 @@ VERSION = main_ns["__version__"]
 
 # What packages are required for this module to be executed?
 REQUIRED = [
-    "Flask>=2.1.2",
-    "accelerate>=0.10.0",
-    "cohere>=2.5.0",
     "dill>=0.3.5",
-    "openai>=0.18.1",
     "redis>=4.3.1",
     "requests>=2.27.1",
     "sqlitedict>=2.0.0",
-    "tqdm>=4.64.0",
-    "transformers>=4.20.0",
-    "uuid>=1.30",
-    "torch>=1.8.0",
 ]
 
 # What packages are optional?
 EXTRAS = {
+    "api": [
+        "Flask>=2.1.2",
+        "accelerate>=0.10.0",
+        "transformers>=4.20.0",
+        "torch>=1.8.0",
+    ],
     "dev": [
         "autopep8>=1.6.0",
         "black>=22.3.0",
@@ -161,7 +159,7 @@ setup(
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.10",
-        "Topic :: Foundation Models :: Artificial Intelligence",
+        "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
     # $ setup.py publish support.
     cmdclass={

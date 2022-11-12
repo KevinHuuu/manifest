@@ -11,24 +11,25 @@ How to make prompt programming with Foundation Models a little easier.
 
 
 # Install
-Download the code:
-```bash
-git clone git@github.com:HazyResearch/manifest.git
-cd manifest
-```
-
 Install:
 ```bash
-pip install -e .
+pip install manifest-ml
+```
+
+Install with HuggingFace API Support:
+```bash
+pip install manifest-ml[api]
 ```
 
 Dev Install:
 ```bash
+git clone git@github.com:HazyResearch/manifest.git
+cd manifest
 make dev
 ```
 
 # Getting Started
-Running is simple to get started. If using OpenAI, set `export OPENAI_API_KEY=<OPENAIKEY>` then run
+Running is simple to get started. If using OpenAI, set `export OPENAI_API_KEY=<OPENAIKEY>` (or pass key in through variable `client_connection`) then run
 
 ```python
 from manifest import Manifest
@@ -43,44 +44,32 @@ manifest.run("Why is the grass green?")
 # Manifest Components
 Manifest is meant to be a very light weight package to help with prompt design and iteration. Three key design decisions of Manifest are
 
-* Prompt are functional -- they can take an input example and dynamically change
 * All models are behind APIs
 * Supports caching of model inputs/outputs for iteration, reproducibility, and cost saving
+* Unified API of generate, score, and embed
 
 ## Models
-Manifest provides model clients for OpenAI, AI21, OPT (assuming model is loaded locally), and HuggingFace (see [below](#huggingface-models) for how to use locally hosted HuggingFace models). You can toggle between the models by changing `client_name` and `client_connection`. For example, if a HuggingFace model is loaded locally, run
+Manifest provides model clients for [OpenAI](https://openai.com/), [AI21](https://studio.ai21.com/), [Cohere](https://cohere.ai/), [Together](https://together.xyz/), and HuggingFace (see [below](#huggingface-models) for how to use locally hosted HuggingFace models). You can toggle between the models by changing `client_name` and `client_connection`. For example, if a HuggingFace model is loaded locally, run
 ```python
 manifest = Manifest(
     client_name = "huggingface",
     client_connection = "http://127.0.0.1:5000",
 )
 ```
+If you want to use Cohere, run
+```python
+manifest = Manifest(
+    client_name = "cohere",
+    client_connection = <COHERE_API_KEY>,
+)
+```
+You can also just set `export COHERE_API_KEY=<COHERE_API_KEY>` and not use `client_connection`.
+
 
 You can see the model details and possible model inputs to `run()` via
 ```python
 print(manifest.client.get_model_params())
 print(manifest.client.get_model_inputs())
-```
-
-## Prompts
-A Manifest prompt is a function that accepts a single input to generate a string prompt to send to a model.
-
-```python
-from manifest import Prompt
-prompt = Prompt(lambda x: f"Hello, my name is {x}")
-print(prompt("Laurel"))
->>> "Hello, my name is Laurel"
-```
-
-Running
-```python
-result = manifest.run(prompt, "Laurel")
-```
-will send ``Hello, my name is Laurel'' to the model.
-
-As you saw above, if you don't want your prompt to change, we also support static strings
-```python
-result = manifest.run("Hello, my name is static")
 ```
 
 ## Global Cache
@@ -127,25 +116,23 @@ will retrieve the last 4 model queries and responses.
 Once you have a session open, you can write and develop prompts.
 
 ```python
-prompt = Prompt(lambda x: "Hello, my name is {x}")
-result = manifest.run(prompt, "Laurel")
+result = manifest.run("Hello, my name is Laurel")
 ```
 
-You can also run over multiple examples.
+You can also run over multiple examples if supported by the client.
 ```python
-results = manifest.run_batch(prompt, ["Laurel", "Avanika"])
+results = manifest.run(["Where are the cats?", "Where are the dogs?"])
 ```
 
 If something doesn't go right, you can also ask to get a raw manifest Response.
 ```python
-result_objects = manifest.batch_run(prompt, ["Laurel", "Avanika"], return_response=True)
-for result_object in result_objects:
-    print(result_object.get_request())
-    print(result_object.is_cached())
-    print(result_object.get_json_response())
+result_object = manifest.run(["Where are the cats?", "Where are the dogs?"], return_response=True)
+print(result_object.get_request())
+print(result_object.is_cached())
+print(result_object.get_json_response())
 ```
 
-By default, we do not truncate results based on a stop token. You can change this by either passing a new stop token to a Manifest session or to a `run` or `run_batch`.
+By default, we do not truncate results based on a stop token. You can change this by either passing a new stop token to a Manifest session or to a `run`.
 ```python
 result = manifest.run(prompt, "Laurel", stop_token="and")
 ```
@@ -156,11 +143,11 @@ result = manifest.run(prompt, "Laurel", max_tokens=50)
 ```
 
 # Local Huggingface Models
-To use a HuggingFace generative model, in `manifest/api` we have a Falsk application that hosts the models for you.
+To use a HuggingFace generative model, in `manifest/api` we have a Flask application that hosts the models for you.
 
 In a separate terminal or Tmux/Screen session, to load 6B parameters models, run
 ```bash
-python3 manifest/api/app.py \
+python3 -m manifest.api.app \
     --model_type huggingface \
     --model_name_or_path EleutherAI/gpt-j-6B \
     --device 0
@@ -176,11 +163,11 @@ manifest = Manifest(
 
 If you have a custom model you trained, pass the model path to `--model_name_or_path`.
 
-To help load larger models, we also support using `parallelize()` from HF, [accelerate](https://huggingface.co/docs/accelerate/index), and [bitsandbytes](https://github.com/TimDettmers/bitsandbytes). You will need to install these packages first. We list the commands to load larger models below.
+To help load larger models, we also support using `parallelize()` from HF, [accelerate](https://huggingface.co/docs/accelerate/index), [bitsandbytes](https://github.com/TimDettmers/bitsandbytes), and [deepspeed](https://github.com/microsoft/DeepSpeed). You will need to install these packages first via `pip install manifest-ml[api]`. We list the commands to load larger models below.
 
 * T0pp
 ```bash
-python3 manifest/api/app.py \
+python3 -m manifest.api.app \
     --model_type huggingface \
     --model_name_or_path bigscience/T0pp \
     --use_hf_parallelize
@@ -188,7 +175,7 @@ python3 manifest/api/app.py \
 
 * NeoX 20B (requires at least 60GB of GPU memory)
 ```bash
-python3 manifest/api/app.py \
+python3 -m manifest.api.app \
     --model_type huggingface \
     --model_name_or_path EleutherAI/gpt-neox-20b \
     --use_accelerate_multigpu \
@@ -196,7 +183,7 @@ python3 manifest/api/app.py \
 ```
 * Bloom 175B (requires at least 240GB of GPU memory)
 ```bash
-python3 manifest/api/app.py \
+python3 -m manifest.api.app \
     --model_type huggingface \
     --model_name_or_path bigscience/bloom \
     --use_bitsandbytes \

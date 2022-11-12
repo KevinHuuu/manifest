@@ -2,6 +2,7 @@
 import argparse
 import logging
 import os
+import socket
 from typing import Dict
 
 import pkg_resources
@@ -20,12 +21,6 @@ PORT = int(os.environ.get("FLASK_PORT", 5000))
 MODEL_CONSTRUCTORS = {
     "huggingface": HuggingFaceModel,
 }
-try:
-    from manifest.api.models.zoo import ZooModel
-
-    MODEL_CONSTRUCTORS["zoo"] = ZooModel  # type: ignore
-except ImportError:
-    logger.warning("Zoo model not available.")
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,7 +50,7 @@ def parse_args() -> argparse.Namespace:
         "--cache_dir", default=None, type=str, help="Cache directory for models."
     )
     parser.add_argument(
-        "--device", type=int, default=-1, help="Model device. -1 for CPU."
+        "--device", type=int, default=0, help="Model device. -1 for CPU."
     )
     parser.add_argument(
         "--fp16", action="store_true", help="Force use fp16 for model params."
@@ -87,26 +82,54 @@ def parse_args() -> argparse.Namespace:
             "This will override --device parameter."
         ),
     )
+    parser.add_argument(
+        "--use_deepspeed",
+        action="store_true",
+        help=("Use deepspeed. This will override --device parameter."),
+    )
     args = parser.parse_args()
     return args
+
+
+def is_port_in_use(port: int) -> bool:
+    """Check if port is in use."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("localhost", port)) == 0
 
 
 def main() -> None:
     """Run main."""
     kwargs = parse_args()
+    if is_port_in_use(PORT):
+        raise ValueError(f"Port {PORT} is already in use.")
+
     model_type = kwargs.model_type
     model_name_or_path = kwargs.model_name_or_path
     model_config = kwargs.model_config
     if not model_name_or_path and not model_config:
         raise ValueError("Must provide model_name_or_path or model_config.")
-    use_accelerate = kwargs.use_accelerate_multigpu
-    if use_accelerate:
+    if kwargs.use_accelerate_multigpu:
         logger.info("Using accelerate. Overridding --device argument.")
     if (
         kwargs.percent_max_gpu_mem_reduction <= 0
         or kwargs.percent_max_gpu_mem_reduction > 1
     ):
         raise ValueError("percent_max_gpu_mem_reduction must be in (0, 1].")
+    if (
+        sum(
+            [
+                kwargs.use_accelerate_multigpu,
+                kwargs.use_hf_parallelize,
+                kwargs.use_bitsandbytes,
+                kwargs.use_deepspeed,
+            ]
+        )
+        > 1
+    ):
+        raise ValueError(
+            "Only one of use_accelerate_multigpu, use_hf_parallelize, "
+            "use_bitsandbytes, and use_deepspeed can be set."
+        )
     # Global model
     global model
     model = MODEL_CONSTRUCTORS[model_type](
@@ -114,9 +137,10 @@ def main() -> None:
         model_config=model_config,
         cache_dir=kwargs.cache_dir,
         device=kwargs.device,
-        use_accelerate=use_accelerate,
+        use_accelerate=kwargs.use_accelerate_multigpu,
         use_parallelize=kwargs.use_hf_parallelize,
         use_bitsandbytes=kwargs.use_bitsandbytes,
+        use_deepspeed=kwargs.use_deepspeed,
         perc_max_gpu_mem_red=kwargs.percent_max_gpu_mem_reduction,
         use_fp16=kwargs.fp16,
     )
@@ -130,8 +154,8 @@ def completions() -> Dict:
     del request.json["prompt"]
     generation_args = request.json
 
-    if not isinstance(prompt, str):
-        raise ValueError("Prompt must be a str")
+    if not isinstance(prompt, (str, list)):
+        raise ValueError("Prompt must be a str or list of str")
 
     results_text = []
     for generations in model.generate(prompt, **generation_args):
@@ -150,14 +174,14 @@ def choice_logits() -> Dict:
     del request.json["gold_choices"]
     generation_args = request.json
 
-    if not isinstance(prompt, str):
-        raise ValueError("Prompt must be a str")
+    if not isinstance(prompt, (str, list)):
+        raise ValueError("Prompt must be a str or list of str")
 
     if not isinstance(gold_choices, list):
         raise ValueError("Gold choices must be a list of string choices")
 
-    result, score = model.logits_scoring(prompt, gold_choices, **generation_args)
-    results = [{"text": result, "text_logprob": score}]
+    choice_score_list = model.logits_scoring(prompt, gold_choices, **generation_args)
+    results = [{"text": r[0], "text_logprob": r[1]} for r in choice_score_list]
     # transform the result into the openai format
     return Response(results, response_type="choice_selection").__dict__()
 
