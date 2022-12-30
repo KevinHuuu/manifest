@@ -575,7 +575,7 @@ class HuggingFaceModel(Model):
         tensor_features = {}
         for k in features:
             tensor_features[k] = torch.LongTensor(features[k]).to(self.pipeline.device)
-
+            
         if self.is_encdec:
             gold_l, bsz, seq_len = tensor_features["labels"].shape
             stacked_logits = self.pipeline.model(  # type: ignore
@@ -594,6 +594,19 @@ class HuggingFaceModel(Model):
                 masked_log_probs, -1, tensor_features["labels"].unsqueeze(-1)
             )
         else:
+            # ###############
+            # print('hello world!!!!!')
+            # print("############")
+            # print(tensor_features)
+            # print("############")            
+            # my_output = self.pipeline.model(  # type: ignore
+            #     input_ids=tensor_features["input_ids"],
+            #     attention_mask=tensor_features["attention_mask"],
+            # )          
+            # print('my_output start')
+            # print(my_output)
+            # print('my_output end')            
+            # ###############            
             stacked_logits = self.pipeline.model(  # type: ignore
                 input_ids=tensor_features["input_ids"],
                 attention_mask=tensor_features["attention_mask"],
