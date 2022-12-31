@@ -505,6 +505,14 @@ class HuggingFaceModel(Model):
                 padding=False,
                 add_special_tokens=False,
             )
+            
+            # ###########
+            # print("tokenized_inputs")            
+            # print(tokenized_inputs)
+            # breakpoint()
+            # ###########            
+            
+            
             tokenized_targets = [
                 self.pipeline.tokenizer(
                     # Add starting whitespace fo gpt
@@ -595,6 +603,7 @@ class HuggingFaceModel(Model):
             )
         else:
             # ###############
+            # breakpoint()
             # print('hello world!!!!!')
             # print("############")
             # print(tensor_features)
@@ -606,11 +615,26 @@ class HuggingFaceModel(Model):
             # print('my_output start')
             # print(my_output)
             # print('my_output end')            
-            # ###############            
-            stacked_logits = self.pipeline.model(  # type: ignore
+            # ###############        
+            #################
+            # print('prompt', prompt)
+            # print('gold_choices', gold_choices)
+            # print('tensor_features')
+            # print(tensor_features)
+            # print(tensor_features.keys())    
+            # breakpoint()
+            #################
+            try:
+                stacked_logits = self.pipeline.model(  # type: ignore
+                    input_ids=tensor_features["input_ids"],
+                    attention_mask=tensor_features["attention_mask"],
+                ).logits
+            except:
+                # This is a workaround, potentially because of the sn ckpt schema 2.0
+                stacked_logits = self.pipeline.model(  # type: ignore
                 input_ids=tensor_features["input_ids"],
                 attention_mask=tensor_features["attention_mask"],
-            ).logits
+            )[0]
             # For causal decoders, shift logts and labels
             labels_attention_mask = tensor_features["labels_attention_mask"].unsqueeze(
                 -1
