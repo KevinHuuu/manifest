@@ -8,14 +8,14 @@ ignore_missing_imports = true
 module = [
   "deepspeed",
   "numpy",
-  "tqdm",
-  "tqdm.auto",
+  "diffusers",
   "sqlitedict",
   "dill",
   "accelerate",
   "accelerate.utils.modeling",
   "transformers",
-  "cohere",
+  "flask",
+  "torch"
 ]
 
 [tool.isort]

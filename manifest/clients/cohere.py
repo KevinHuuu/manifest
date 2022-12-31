@@ -5,6 +5,7 @@ import os
 from typing import Any, Dict, Optional
 
 from manifest.clients.client import Client
+from manifest.request import LMRequest
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class CohereClient(Client):
         "stop_sequences": ("stop_sequences", None),
         "client_timeout": ("client_timeout", 60),  # seconds
     }
+    REQUEST_CLS = LMRequest
 
     def connect(
         self,
@@ -46,7 +48,7 @@ class CohereClient(Client):
         if self.api_key is None:
             raise ValueError(
                 "Cohere API key not set. Set COHERE_API_KEY environment "
-                "variable or pass through `connection_str`."
+                "variable or pass through `client_connection`."
             )
         self.host = "https://api.cohere.ai"
         for key in self.PARAMS:

@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
+import numpy as np
+import PIL
 import torch
 from accelerate import dispatch_model, infer_auto_device_map
 from accelerate.utils.modeling import get_max_memory as acc_get_max_memory
@@ -11,6 +13,8 @@ from transformers import (
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
     BloomForCausalLM,
+    CLIPModel,
+    CLIPProcessor,
     GPT2LMHeadModel,
     GPTJForCausalLM,
     GPTNeoForCausalLM,
@@ -39,6 +43,7 @@ MODEL_REGISTRY = {
     "facebook/opt-13b": OPTForCausalLM,
     "facebook/opt-30b": OPTForCausalLM,
     "gpt2": GPT2LMHeadModel,
+    "openai/clip-vit-base-patch32": CLIPModel,
     "bigscience/bloom-560m": BloomForCausalLM,
     "bigscience/bloom-1b7": BloomForCausalLM,
     "bigscience/bloom-3b": BloomForCausalLM,
@@ -70,7 +75,7 @@ def get_max_memory(gpu_reduction: float) -> Dict[int, str]:
     return max_mem_dict
 
 
-class Pipeline:
+class GenerationPipeline:
     """
     Custom Pipeline.
 
@@ -177,7 +182,7 @@ class Pipeline:
 
 
 class HuggingFaceModel(Model):
-    """Huggingface model."""
+    """HuggingFace Model."""
 
     def __init__(
         self,
@@ -231,98 +236,12 @@ class HuggingFaceModel(Model):
                     # The SN ckpts does not have "_name_or_path" in the config file. So just use the folder name as the model name.
                     model_name_or_path = self.model_path.split('/')[-1]
         self.model_name = model_name_or_path
-        print("Model Name:", self.model_name, "Model Path:", self.model_path)
-        try:
-            if 'sn' in self.model_name or 'SN' in self.model_name:
-                tokenizer = AutoTokenizer.from_pretrained(
-                        'gpt2', truncation_side="left", padding_side="left"
-                )
-            else:
-                tokenizer = AutoTokenizer.from_pretrained(
-                        self.model_name, truncation_side="left", padding_side="left"
-                )
-        except ValueError:
-            tokenizer = AutoTokenizer.from_pretrained(
-                self.model_name,
-                truncation_side="left",
-                padding_side="left",
-                use_fast=False,
-            )
-        dtype = torch.float16 if use_fp16 else torch.float32
-        # dtype=torch.float32
-        if use_bitsandbytes:
-            print("WARNING!!! Cannot use sampling with bitsandbytes.")
-            max_memory = get_max_memory(perc_max_gpu_mem_red)
-            print(max_memory)
-            if 'sn' in self.model_name or 'SN' in self.model_name:
-                model = MODEL_REGISTRY['gpt2'].from_pretrained(  # type: ignore
-                    self.model_path,
-                    cache_dir=cache_dir,
-                    load_in_8bit=True,
-                    device_map="auto",
-                    max_memory=max_memory,
-                ) 
-            else:
-                model = MODEL_REGISTRY[self.model_name].from_pretrained(  # type: ignore
-                    self.model_path,
-                    cache_dir=cache_dir,
-                    load_in_8bit=True,
-                    device_map="auto",
-                    max_memory=max_memory,
-                )
+        if 'SN' in self.model_name:
+            self.model_type = 'gpt2'
         else:
-        #     try:
-        #         # Try to explicitely find a fp16 copy (gpt-j-6B for example)
-        #         model = MODEL_REGISTRY[self.model_name].from_pretrained(  # type: ignore
-        #             self.model_path,
-        #             cache_dir=cache_dir,
-        #             revision="float16",
-        #             torch_dtype=torch.float16,
-        #         )
-        #     except Exception:
-        #         model = MODEL_REGISTRY[self.model_name].from_pretrained(  # type: ignore
-        #             self.model_path, cache_dir=cache_dir, torch_dtype=dtype
-        #         )
-            if 'sn' in self.model_name or 'SN' in self.model_name:
-                model = MODEL_REGISTRY['gpt2'].from_pretrained(  # type: ignore
-                    self.model_path, cache_dir=cache_dir, torch_dtype=dtype
-                )
-            else:
-                model = MODEL_REGISTRY[self.model_name].from_pretrained(  # type: ignore
-                    self.model_path, cache_dir=cache_dir, torch_dtype=dtype
-                )
-        model.eval()
-        print(f"Loaded Model DType {model.dtype}")
-
-        self.is_encdec = model.config.is_encoder_decoder
-        if not self.is_encdec:
-            tokenizer.pad_token = tokenizer.eos_token
-
-        if not use_bitsandbytes:
-            if use_accelerate:
-                self._dispatch_accelerate_model(model, perc_max_gpu_mem_red)
-                device = 0
-            elif use_parallelize:
-                model.parallelize()
-                device = 0
-            elif use_deepspeed:
-                self._dispatch_deepspeed_model(model)
-                device = 0
-            else:
-                if device > -1:
-                    torch_device = (
-                        torch.device("cpu")
-                        if (device == -1 or not torch.cuda.is_available())
-                        else torch.device(f"cuda:{device}")
-                    )
-                    model = model.to(torch_device)  # type: ignore
-        self.pipeline = Pipeline(  # type: ignore
-            model=model,
-            tokenizer=tokenizer,
-            device=device,
-            bitsandbytes=use_bitsandbytes,
-            is_encdec=self.is_encdec,
-        )
+            self.model_type = self.model_name
+        
+        print("Model Name:", self.model_name, "Model Path:", self.model_path)
 
     def get_init_params(self) -> Dict:
         """Return init params to determine what model is being used."""
@@ -404,10 +323,222 @@ class HuggingFaceModel(Model):
         dispatch_model(model, device_map=device_map)
         return
 
+class CrossModalEncoderModel(HuggingFaceModel):
+    """CrossModalEncoderModel."""
+
+    def __init__(
+        self,
+        model_name_or_path: str,
+        model_config: Optional[str] = None,
+        cache_dir: Optional[str] = None,
+        device: int = 0,
+        use_accelerate: bool = False,
+        use_parallelize: bool = False,
+        use_bitsandbytes: bool = False,
+        use_deepspeed: bool = False,
+        perc_max_gpu_mem_red: float = 1.0,
+        use_fp16: bool = False,
+    ):
+        """
+        Initialize model.
+
+        All arguments will be passed in the request from Manifest.
+
+        Args:
+            model_name_or_path: model name string.
+            model_config: model config string.
+            cache_dir: cache directory for model.
+            device: device to use for model.
+            use_accelerate: whether to use accelerate for multi-gpu inference.
+            use_parallelize: use HF default parallelize
+            use_bitsandbytes: use HF bits and bytes
+            use_deepspeed: use deepspeed
+            perc_max_gpu_mem_red: percent max memory reduction in accelerate
+            use_fp16: use fp16 for model weights.
+        """
+        super().__init__(
+            model_name_or_path,
+            model_config,
+            cache_dir,
+            device,
+            use_accelerate,
+            use_parallelize,
+            use_bitsandbytes,
+            use_deepspeed,
+            perc_max_gpu_mem_red,
+            use_fp16,
+        )
+
+        # TODO: make this generalizable
+        self.processor = CLIPProcessor.from_pretrained(self.model_path)
+
+        model = MODEL_REGISTRY[self.model_type].from_pretrained(
+            self.model_path,
+            cache_dir=cache_dir,
+        )
+        model.eval()
+
+        torch_device = (
+            torch.device("cpu")
+            if (device == -1 or not torch.cuda.is_available())
+            else torch.device(f"cuda:{device}")
+        )
+        print("T", torch_device)
+        self.model = model.to(torch_device)  # type: ignore
+
+    @torch.no_grad()
+    def embed(self, prompt: Union[str, List[str]], **kwargs: Any) -> np.ndarray:
+        """
+        Compute embedding for prompts.
+
+        Args:
+            prompt: promt to generate from.
+
+        Returns:
+            embedding
+        """
+        if isinstance(prompt, str):
+            inputs = self.processor(text=prompt, return_tensors="pt", padding=True)
+        elif isinstance(prompt, PIL.Image.Image):
+            inputs = self.processor(images=prompt, return_tensors="pt", padding=True)
+        else:
+            raise ValueError("Prompt must be a string or an image")
+
+        outputs = self.model(**inputs)
+        return outputs
+
+
+class TextGenerationModel(HuggingFaceModel):
+    """Huggingface model."""
+
+    def __init__(
+        self,
+        model_name_or_path: str,
+        model_config: Optional[str] = None,
+        cache_dir: Optional[str] = None,
+        device: int = 0,
+        use_accelerate: bool = False,
+        use_parallelize: bool = False,
+        use_bitsandbytes: bool = False,
+        use_deepspeed: bool = False,
+        perc_max_gpu_mem_red: float = 1.0,
+        use_fp16: bool = False,
+    ):
+        """
+        Initialize model.
+
+        All arguments will be passed in the request from Manifest.
+
+        Args:
+            model_name_or_path: model name string.
+            model_config: model config string.
+            cache_dir: cache directory for model.
+            device: device to use for model.
+            use_accelerate: whether to use accelerate for multi-gpu inference.
+            use_parallelize: use HF default parallelize
+            use_bitsandbytes: use HF bits and bytes
+            use_deepspeed: use deepspeed
+            perc_max_gpu_mem_red: percent max memory reduction in accelerate
+            use_fp16: use fp16 for model weights.
+        """
+        super().__init__(
+            model_name_or_path,
+            model_config,
+            cache_dir,
+            device,
+            use_accelerate,
+            use_parallelize,
+            use_bitsandbytes,
+            use_deepspeed,
+            perc_max_gpu_mem_red,
+            use_fp16,
+        )
+        try:
+
+            tokenizer = AutoTokenizer.from_pretrained(
+                self.model_type, truncation_side="left", padding_side="left"
+            )                
+        except ValueError:
+            tokenizer = AutoTokenizer.from_pretrained(
+                self.model_type,
+                truncation_side="left",
+                padding_side="left",
+                use_fast=False,
+            )                
+        dtype = torch.float16 if use_fp16 else "auto"
+        if use_bitsandbytes:
+            print("WARNING!!! Cannot use sampling with bitsandbytes.")
+            max_memory = get_max_memory(perc_max_gpu_mem_red)
+            model = MODEL_REGISTRY[self.model_name].from_pretrained(  # type: ignore
+                self.model_path,
+                cache_dir=cache_dir,
+                load_in_8bit=True,
+                device_map="auto",
+                max_memory=max_memory,
+            )
+        else:
+            try:
+                # Try to explicitely find a fp16 copy (gpt-j-6B for example)
+                model = MODEL_REGISTRY[self.model_type].from_pretrained(  # type: ignore
+                    self.model_path,
+                    cache_dir=cache_dir,
+                    revision="float16",
+                    torch_dtype=torch.float16,
+                )                    
+            except Exception:
+                model = MODEL_REGISTRY[self.model_type].from_pretrained(  # type: ignore
+                    self.model_path, cache_dir=cache_dir, torch_dtype=dtype
+                )                    
+        model.eval()
+        print(f"Loaded Model DType {model.dtype}")
+
+        self.is_encdec = model.config.is_encoder_decoder
+        if not self.is_encdec:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        if not use_bitsandbytes:
+            if use_accelerate:
+                self._dispatch_accelerate_model(model, perc_max_gpu_mem_red)
+                device = 0
+            elif use_parallelize:
+                model.parallelize()
+                device = 0
+            elif use_deepspeed:
+                self._dispatch_deepspeed_model(model)
+                device = 0
+            else:
+                if device > -1:
+                    torch_device = (
+                        torch.device("cpu")
+                        if (device == -1 or not torch.cuda.is_available())
+                        else torch.device(f"cuda:{device}")
+                    )
+                    model = model.to(torch_device)  # type: ignore
+        self.pipeline = GenerationPipeline(  # type: ignore
+            model=model,
+            tokenizer=tokenizer,
+            device=device,
+            bitsandbytes=use_bitsandbytes,
+            is_encdec=self.is_encdec,
+        )
+
+    @torch.no_grad()
+    def embed(self, prompt: Union[str, List[str]], **kwargs: Any) -> np.ndarray:
+        """
+        Compute embedding for prompts.
+
+        Args:
+            prompt: promt to generate from.
+
+        Returns:
+            embedding
+        """
+        pass
+
     @torch.no_grad()
     def generate(
         self, prompt: Union[str, List[str]], **kwargs: Any
-    ) -> List[Tuple[str, float]]:
+    ) -> List[Tuple[Any, float]]:
         """
         Generate the prompt from model.
 
@@ -441,7 +572,7 @@ class HuggingFaceModel(Model):
     @torch.no_grad()
     def logits_scoring(
         self, prompt: Union[str, List[str]], gold_choices: List[str], **kwargs: Any
-    ) -> List[Tuple[str, float]]:
+    ) -> List[Tuple[Any, float]]:
         """
         Given the prompt and gold choices, choose the best choice with max logits.
 

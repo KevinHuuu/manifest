@@ -2,11 +2,14 @@
 import logging
 from typing import Any, List, Optional, Tuple, Union, cast
 
+import numpy as np
+
 from manifest.caches.noop import NoopCache
 from manifest.caches.redis import RedisCache
 from manifest.caches.sqlite import SQLiteCache
 from manifest.clients.ai21 import AI21Client
 from manifest.clients.cohere import CohereClient
+from manifest.clients.diffuser import DiffuserClient
 from manifest.clients.dummy import DummyClient
 from manifest.clients.huggingface import HuggingFaceClient
 from manifest.clients.openai import OpenAIClient
@@ -22,6 +25,7 @@ CLIENT_CONSTRUCTORS = {
     "cohere": CohereClient,
     "ai21": AI21Client,
     "huggingface": HuggingFaceClient,
+    "diffuser": DiffuserClient,
     "dummy": DummyClient,
     "toma": TOMAClient,
 }
@@ -75,12 +79,16 @@ class Manifest:
         self.client_name = client_name
         # Must pass kwargs as dict for client "pop" methods removed used arguments
         self.cache = CACHE_CONSTRUCTORS[cache_name](  # type: ignore
-            cache_connection, cache_args=kwargs
+            cache_connection, self.client_name, cache_args=kwargs
         )
-        self.client = CLIENT_CONSTRUCTORS[client_name](  # type: ignore
+        self.client = CLIENT_CONSTRUCTORS[self.client_name](  # type: ignore
             client_connection, client_args=kwargs
         )
-        if session_id:
+        if session_id is not None:
+            if self.client_name == "diffuser":
+                raise NotImplementedError(
+                    "Session logging not implemented for Diffuser client."
+                )
             if session_id == "_default":
                 # Set session_id to None for Session random id
                 session_id = None
@@ -97,6 +105,42 @@ class Manifest:
         self.client.close()
         self.cache.close()
 
+    def change_client(
+        self,
+        client_name: Optional[str] = None,
+        client_connection: Optional[str] = None,
+        stop_token: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
+        """
+        Change manifest client.
+
+        Args:
+            client_name: name of client.
+            client_connection: connection string for client.
+            stop_token: stop token prompt generation.
+                        Can be overridden in run
+
+        Remaining kwargs sent to client.
+        """
+        if client_name:
+            if client_name not in CLIENT_CONSTRUCTORS:
+                raise ValueError(
+                    f"Unknown client name: {client_name}. "
+                    f"Choices are {list(CLIENT_CONSTRUCTORS.keys())}"
+                )
+            self.client_name = client_name
+            self.client = CLIENT_CONSTRUCTORS[client_name](  # type: ignore
+                client_connection, client_args=kwargs
+            )
+            if len(kwargs) > 0:
+                raise ValueError(
+                    f"{list(kwargs.items())} arguments are not recognized."
+                )
+
+        if stop_token is not None:
+            self.stop_token = stop_token
+
     def run(
         self,
         prompt: Union[str, List[str]],
@@ -106,7 +150,7 @@ class Manifest:
         stop_token: Optional[str] = None,
         return_response: bool = False,
         **kwargs: Any,
-    ) -> Union[str, List[str], Response]:
+    ) -> Union[str, List[str], np.ndarray, List[np.ndarray], Response]:
         """
         Run the prompt.
 
@@ -156,7 +200,6 @@ class Manifest:
         ]
         if len(request_unused_kwargs) > 0:
             logger.warning(f"{list(request_unused_kwargs)} arguments are unused.")
-
         # Create cacke key
         cache_key = full_kwargs.copy()
         # Make query model dependent

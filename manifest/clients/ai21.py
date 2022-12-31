@@ -4,6 +4,7 @@ import os
 from typing import Any, Dict, Optional
 
 from manifest.clients.client import Client
+from manifest.request import LMRequest
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class AI21Client(Client):
         "stop_sequences": ("stopSequences", []),
         "client_timeout": ("client_timeout", 60),  # seconds
     }
+    REQUEST_CLS = LMRequest
 
     def connect(
         self,
@@ -49,7 +51,7 @@ class AI21Client(Client):
         if self.api_key is None:
             raise ValueError(
                 "AI21 API key not set. Set AI21_API_KEY environment "
-                "variable or pass through `connection_str`."
+                "variable or pass through `client_connection`."
             )
 
         for key in self.PARAMS:
