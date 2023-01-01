@@ -175,6 +175,9 @@ class GenerationPipeline:
                 "logprobs": logits[
                     range(num_generated_tokens), i, output_seq[-num_generated_tokens:]
                 ].tolist(),
+                # "logprobs": logits[
+                #     range(num_generated_tokens), i, output_seq[-num_generated_tokens:]
+                # ].tolist(),
             }
             for i, output_seq in enumerate(output_dict.sequences)
         ]
@@ -465,7 +468,10 @@ class TextGenerationModel(HuggingFaceModel):
                 padding_side="left",
                 use_fast=False,
             )                
-        dtype = torch.float16 if use_fp16 else "auto"
+        if "SN" in self.model_name:
+            dtype = torch.float32
+        else:
+            dtype = torch.float16 if use_fp16 else "auto"
         if use_bitsandbytes:
             print("WARNING!!! Cannot use sampling with bitsandbytes.")
             max_memory = get_max_memory(perc_max_gpu_mem_red)
@@ -477,18 +483,18 @@ class TextGenerationModel(HuggingFaceModel):
                 max_memory=max_memory,
             )
         else:
-            try:
-                # Try to explicitely find a fp16 copy (gpt-j-6B for example)
-                model = MODEL_REGISTRY[self.model_type].from_pretrained(  # type: ignore
-                    self.model_path,
-                    cache_dir=cache_dir,
-                    revision="float16",
-                    torch_dtype=torch.float16,
-                )                    
-            except Exception:
-                model = MODEL_REGISTRY[self.model_type].from_pretrained(  # type: ignore
-                    self.model_path, cache_dir=cache_dir, torch_dtype=dtype
-                )                    
+            # try:
+            #     # Try to explicitely find a fp16 copy (gpt-j-6B for example)
+            #     model = MODEL_REGISTRY[self.model_type].from_pretrained(  # type: ignore
+            #         self.model_path,
+            #         cache_dir=cache_dir,
+            #         revision="float16",
+            #         torch_dtype=torch.float16,
+            #     )                    
+            # except Exception:
+            model = MODEL_REGISTRY[self.model_type].from_pretrained(  # type: ignore
+                self.model_path, cache_dir=cache_dir, torch_dtype=dtype
+            )                    
         model.eval()
         print(f"Loaded Model DType {model.dtype}")
 

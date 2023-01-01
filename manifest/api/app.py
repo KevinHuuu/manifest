@@ -224,7 +224,8 @@ def choice_logits() -> Response:
         choice_score_list = model.logits_scoring(
             prompt, gold_choices, **generation_args
         )
-        results = [{"text": r[0], "text_logprob": r[1]} for r in choice_score_list]
+        # results = [{"text": r[0], "text_logprob": r[1]} for r in choice_score_list]
+        results = [{"text": r[0], "text_logprob": r[1], "logprob": r[1]} for r in choice_score_list]        
         # transform the result into the openai format
         return Response(
             json.dumps(
