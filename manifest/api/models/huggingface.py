@@ -42,6 +42,7 @@ MODEL_REGISTRY = {
     "facebook/opt-6.7b": OPTForCausalLM,
     "facebook/opt-13b": OPTForCausalLM,
     "facebook/opt-30b": OPTForCausalLM,
+    "facebook/opt-iml-30b": OPTForCausalLM,
     "facebook/opt-66b": OPTForCausalLM,    
     "gpt2": GPT2LMHeadModel,
     "openai/clip-vit-base-patch32": CLIPModel,
