@@ -42,6 +42,7 @@ MODEL_REGISTRY = {
     "facebook/opt-6.7b": OPTForCausalLM,
     "facebook/opt-13b": OPTForCausalLM,
     "facebook/opt-30b": OPTForCausalLM,
+    "facebook/opt-66b": OPTForCausalLM,    
     "gpt2": GPT2LMHeadModel,
     "openai/clip-vit-base-patch32": CLIPModel,
     "bigscience/bloom-560m": BloomForCausalLM,
@@ -49,6 +50,8 @@ MODEL_REGISTRY = {
     "bigscience/bloom-3b": BloomForCausalLM,
     "bigscience/bloom-7b1": BloomForCausalLM,
     "bigscience/bloom": AutoModelForCausalLM,
+    "bigscience/bloomz-7b1": BloomForCausalLM,
+    "bigscience/bloomz": AutoModelForCausalLM,    
     "bigscience/T0pp": AutoModelForSeq2SeqLM,
     "bigscience/T0_3B": AutoModelForSeq2SeqLM,
     "google/t5-small-lm-adapt": AutoModelForSeq2SeqLM,  # 220M
